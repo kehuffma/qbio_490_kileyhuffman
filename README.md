@@ -1,2 +1,2 @@
-# qbio_490_kileyhuffman
-All project files for QBIO-490x: Multi-Omic Analysis
+# fa24_course_materials
+Course materials for QBIO490: Multi-Omic Data Analysis class during Fall 2024.
