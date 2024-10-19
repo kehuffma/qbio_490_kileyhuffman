@@ -1,0 +1,192 @@
+---
+title: "Introduction to MAF COMPLETE"
+author: Mahija Mogalipuvvu, adapted from Nicole Black, Wade Boohar
+date: 07/17/22
+updated: 10/3/24
+---
+
+***Deliverables***
+- upload this R Notebook to your GitHub and submit the link to your Repo on Brightspace
+- include ALL graphs or figures created in this assignment in a folder with your R notebook with descriptive file names.
+
+We encourage you to work with a partner. Therefore, it is okay if your answers are the same as your partner’s as long as everyone understands it and could explain it in their own words if asked. Each person must individually push their code to Github. *At the top of your R Notebook, write the name of you and your partner(s) as a comment.*
+
+***Complete the following coding activity and answer any following questions as comments in your R Notebook***
+
+In this assignment, you will need to use your skills learned in class to demonstrate your understanding of categorical variables and R data structures.
+
+*Pre-Assignment*
+Load all necessary packages, read in the clinical data.csv file you have in your analysis_data folder, and instantiate the MAF_object.
+```{r set-up}
+# Set up file pathway
+knitr::opts_knit$set(root.dir = normalizePath("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files"))
+```
+
+
+```{r}
+# Load necessary packages
+library(maftools)
+library(TCGAbiolinks)
+library(ggplot2)
+
+# Read in clinical data
+clinical <- read.csv("/home1/kehuffma/490_cluster/analysis_data/brca_clinical_data.csv")
+
+# Instantiate MAF object
+maf_query <- GDCquery(
+  project = 'TCGA-BRCA',
+  data.category = "Simple Nucleotide Variation",
+  access = "open", # we only have access to somatic mutations which are open access
+  data.type = "Masked Somatic Mutation",
+  workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+
+# GDCdownload(maf_query)
+
+maf <- GDCprepare(maf_query) # as long as it runs, ignore any errors
+
+maf_object <- read.maf(maf = maf,
+                       clinicalData = clinical, 
+                       isTCGA = TRUE)
+```
+
+
+*1*
+Choose a clinical variable (or any variable from clin_rad or clin_drug) to separate your populations into two different groups and rewrite the column or create a new column with that variable as a factor. ***Do not use age or vital_status as your clinical variable.*** Hint: if your variable is continuous, you will need to determine your own cutoffs for the different levels of the factor. If your variable is categorical and has more than two possible values, choose the two that are the most common.
+```{r}
+# View Column Names (Variables)
+colnames(clinical)
+
+# Chosen Variable:
+clinical$er_status_by_ihc
+
+# Separate into two populations ("Positive" or "Negative" becomes T/F)
+er_status_by_ihc_mask <- ifelse(maf_object@clinical.data$er_status_by_ihc == "Positive", T, ifelse(maf_object@clinical.data$er_status_by_ihc == "Negative", F, "NA"))
+
+clinical_mask <- clinical[er_status_by_ihc_mask,]
+
+clinical_mask$er_status_by_ihc <- factor(clinical_mask$er_status_by_ihc)
+
+```
+
+
+*2*
+Create a co-oncoplot with the top 10-20 (you choose) most mutated genes for the two groups. Pick one that has a large discrepancy in % mutated or type of mutations between the groups and research it. 
+Research it. What is the gene used for? Can you think of any reason for the discrepancy?
+```{r}
+# Store positive patient barcodes
+positive_mask <- ifelse(maf_object@clinical.data$er_status_by_ihc == 'Positive', T, F)
+positive_patient_status <- maf_object@clinical.data$Tumor_Sample_Barcode[positive_mask]
+
+# Subset positive_maf 
+positive_maf <- subsetMaf(maf = maf_object,
+                       tsb = positive_patient_status)
+
+#Store negative_maf
+negative_patient_status <- maf_object@clinical.data$Tumor_Sample_Barcode[!positive_mask]
+
+# Subset negative_maf
+negative_maf <- subsetMaf(maf = maf_object,
+                       tsb = negative_patient_status)
+#Create Co-Onco plot
+coOncoplot(m1 = positive_maf, 
+           m2 = negative_maf, 
+           m1Name = 'Estrogen Receptor Postive Patients', 
+           m2Name = 'Estrogen Receptor Negative Patients', 
+           borderCol = NA)
+
+ggsave("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files/CoOncoPlot1.pdf")
+
+# Pick one that has a large discrepancy in % mutated or type of mutations between the groups and research it. @ Research it. What is the gene used for? Can you think of any reason for the discrepancy?
+
+# Pick one: TTN has a large discrepancy in % mutated between the groups (Estrogen Receptor Positive Patients vs. Estrogen Receptor Negative Patients)
+
+# Research it: The TTN gene encodes the titin protein. This protein has to do with muscle contraction and elasticity. Some of the reasons for this discrepancy may include treatment history (like chemo or medications) and/or genetic factors. 
+
+```
+
+
+*3*
+Create a contingency table with your variable and chosen gene. Run a Fisher’s Exact Test between presence of mutations for that gene and your clinical variable. Create and save a mosaic plot. 
+Interpret the output of the Fisher’s Exact Test in terms of the odds ratio and p-value.
+```{r}
+#Set-Up Boolean Masks for maf_object 
+TNN_mask <- ifelse(maf_object@data$Hugo_Symbol == "TTN", T, F)
+TTN_patients <- maf_object@data$Tumor_Sample_Barcode[TNN_mask]
+length(TTN_patients)
+
+# Initialize maf_object
+maf_object@clinical.data$ttn <- maf_object@clinical.data$Tumor_Sample_Barcode %in% TTN_patients
+maf_object@clinical.data$ttn <- ifelse(maf_object@clinical.data$ttn == "TRUE", "Mutation", "No Mutation")
+maf_object@clinical.data$ttn <- factor(maf_object@clinical.data$ttn, levels = c("Mutation", "No Mutation"))
+
+# Print maf_object
+print(maf_object@clinical.data$er_status_by_ihc)
+print(maf_object@clinical.data$ttn)
+
+# View Contigency Table
+contigency <- table(maf_object@clinical.data$er_status_by_ihc, maf_object@clinical.data$ttn)
+ggsave("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files/ContingencyTable1.pdf")
+
+# Run Fisher's Exact Test:
+fisher_test <- fisher.test(contigency)
+fisher_test
+
+# Create and save a mosaic plot:
+mosaicplot(contigency)
+ggsave("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files/MosaicPlot1.pdf")
+
+# Output for Fisher's Exact Test:
+# p-value - 0.1375
+# odds ratio - N/A
+
+# Interpret: The p-value = 0.1375 > 0.05, which suggests that there is not a statistically significant      presence of mutations for that gene in relation to my clinical variable. The odds ratio was not calculated when I ran the Fisher's test. 
+```
+
+
+*4*
+Subset your maf_object based on your chosen clinical variable and create a co-lollipop plot of your chosen gene divided between the two different clinical variable possibilities. Include descriptive names on your plot.
+Do you notice any difference in terms of mutations (e.g. sites, types, number) between the two populations?
+```{r}
+# Subset maf_object completed in previous step
+# Create co-lollipop plot
+lollipopPlot2(m1 = positive_maf, 
+              m2 = negative_maf, 
+              m1_name = 'Estrogen Receptor Postive Patients',
+              m2_name = 'Estrogen Receptor Negative Patients',
+              gene = "TTN") # pick any gene of your choosing to fill in here
+
+ggsave("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files/lollipopPlot1.pdf")
+
+# Do you notice any difference in terms of mutations (e.g. sites, types, number) between the two populations?
+
+# I notice that there are a lot of missense mutations in both populations. However, it is hard to draw conclusions as the Estrogen Receptor Positive Patients had a much bigger sample size (N = 710) than the Estrogen Receptor Negative Patients (N = 257).
+```
+
+
+```
+
+*5*
+Create your Overall_Survival_Status column and create a mafSurvival KM plot based on mutations in your chosen gene.
+Does there seem to be a difference? Hypothesize why or not based on the other analysis you did with the gene above.
+
+```{r}
+# Create Overall_Survival_Status column
+maf_object@clinical.data$Overall_Survival_Status <- ifelse(maf_object@clinical.data$vital_status == 'Alive', T, F)
+
+# Create mafSurvival KM plot
+mafSurvival(maf = maf_object,
+            genes = "TTN", ## pick a gene of your choosing
+            time = "last_contact_days_to", ## maf_object@clinical.data containing survival time
+            Status = "Overall_Survival_Status", ## boolean value for death events 
+            isTCGA = TRUE)
+ggsave("/home1/kehuffma/490_cluster/week6_MAF/Intro_to_MAF_Files/KMPlot1.pdf")
+
+# Does there seem to be a difference? Hypothesize why or not based on the other analysis you did with the gene above.
+
+# There does not seem to be a difference in survival probability, as the p-value of the KM plot is 0.725, which is greater than 0.05. I hypothesize that if we conducted the same data analysis with a more equal sample size in both populations, I believe we would get more accurate and possibly statistally significant data for a difference in the two groups. 
+
+```
+
+
+```
